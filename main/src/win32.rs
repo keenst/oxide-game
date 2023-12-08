@@ -1,5 +1,6 @@
+use crate::*;
 use std::{
-    ffi::c_void, mem::size_of, ptr::null_mut
+    ffi::c_void, mem::size_of, ptr, ptr::null_mut
 };
 use windows::{
     core::*,
@@ -10,7 +11,6 @@ use windows::{
         System::Memory::*,
         UI::{
             WindowsAndMessaging::*,
-            Input::XboxController::*,
             Input::KeyboardAndMouse::*
         }
     }
@@ -62,7 +62,7 @@ static mut BACK_BUFFER: OffscreenBuffer = OffscreenBuffer {
 static mut X_OFFSET: u8 = 0;
 static mut Y_OFFSET: u8 = 0;
 
-fn main() {
+pub fn start_program() {
     let mut message: MSG = MSG::default();
 
     unsafe {
@@ -72,6 +72,17 @@ fn main() {
             .expect("Unable to resize DIB section");
 
         let device_context: HDC = GetDC(window);
+
+        let permanent_size: u64 = 64 * 1024 * 1024; // 64MB
+        let transient_size: u64 = 4 * 1024 * 1024 * 1024; // 4GB
+
+        let mut game_memory: GameMemory = GameMemory {
+            is_initialized: true,
+            permanent_storage_size: permanent_size,
+            permanent_storage: VirtualAlloc(None, permanent_size as usize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE),
+            transient_storage_size: transient_size,
+            transient_storage: VirtualAlloc(None, transient_size as usize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE)
+        };
 
         while IS_RUNNING {
             while PeekMessageA(&mut message, None, 0, 0, PM_REMOVE).into() {
@@ -83,49 +94,7 @@ fn main() {
                 DispatchMessageA(&message);
             }
 
-            let mut controller_index: u32 = 0;
-            while controller_index < XUSER_MAX_COUNT {
-                let mut controller_state: XINPUT_STATE = XINPUT_STATE::default();
-                if XInputGetState(controller_index, &mut controller_state) == 0 /*ERROR SUCCESS*/ {
-                    // The controller is plugged in
-                    let gamepad: *const XINPUT_GAMEPAD = &mut controller_state.Gamepad;
-
-                    let buttons: XINPUT_GAMEPAD_BUTTON_FLAGS = (*gamepad).wButtons;
-                    let up: bool = buttons.contains(XINPUT_GAMEPAD_DPAD_UP);
-                    let down: bool = buttons.contains(XINPUT_GAMEPAD_DPAD_DOWN);
-                    let left: bool = buttons.contains(XINPUT_GAMEPAD_DPAD_LEFT);
-                    let right: bool = buttons.contains(XINPUT_GAMEPAD_DPAD_RIGHT);
-                    let _start: bool = buttons.contains(XINPUT_GAMEPAD_START);
-                    let _back: bool = buttons.contains(XINPUT_GAMEPAD_BACK);
-                    let _left_shoulder: bool = buttons.contains(XINPUT_GAMEPAD_LEFT_SHOULDER);
-                    let _right_shoulder: bool = buttons.contains(XINPUT_GAMEPAD_RIGHT_SHOULDER);
-                    let _a_button: bool = buttons.contains(XINPUT_GAMEPAD_A);
-                    let _b_button: bool = buttons.contains(XINPUT_GAMEPAD_B);
-                    let _x_button: bool = buttons.contains(XINPUT_GAMEPAD_X);
-                    let _y_button: bool = buttons.contains(XINPUT_GAMEPAD_Y);
-
-                    let stick_x: f32 = (*gamepad).sThumbLX as f32 / i16::MAX as f32;
-                    let stick_y: f32 = (*gamepad).sThumbLY as f32 / i16::MAX as f32;
-
-                    if down || stick_y < -0.1 {
-                        Y_OFFSET = ((Y_OFFSET as i16 + 1) % 255) as u8;
-                    } else if up || stick_y > 0.1 {
-                        Y_OFFSET = ((Y_OFFSET as i16 - 1) % 255) as u8;
-                    }
-
-                    if left || stick_x < -0.1 {
-                        X_OFFSET = ((X_OFFSET as i16 - 1) % 255) as u8;
-                    } else if right || stick_x > 0.1 {
-                        X_OFFSET = ((X_OFFSET as i16 + 1) % 255) as u8;
-                    }
-                } else {
-                    // The controller is not available
-                }
-
-                controller_index += 1;
-            }
-
-            render_weird_gradient(&mut BACK_BUFFER, X_OFFSET, Y_OFFSET);
+            game_update_and_render(&mut game_memory, &mut BACK_BUFFER, X_OFFSET, Y_OFFSET);
 
             let dimensions: WindowDimensions = get_window_dimensions(window);
             copy_buffer_to_window(
@@ -290,6 +259,16 @@ unsafe fn copy_buffer_to_window(buffer: &mut OffscreenBuffer, device_context: HD
         DIB_RGB_COLORS, SRCCOPY);
 
     Ok(())
+}
+
+unsafe fn game_update_and_render(memory: &mut GameMemory, buffer: &mut OffscreenBuffer, x_offset: u8, y_offset: u8) {
+    let game_state: &mut GameState = ptr::read_unaligned(memory.permanent_storage as *const &mut GameState);
+    if !memory.is_initialized {
+        game_state.green_offset = 0;
+        game_state.blue_offset = 0;
+    }
+    memory.is_initialized = true;
+    render_weird_gradient(buffer, x_offset, y_offset);
 }
 
 unsafe fn render_weird_gradient(buffer: &mut OffscreenBuffer, x_offset: u8, y_offset: u8) {
