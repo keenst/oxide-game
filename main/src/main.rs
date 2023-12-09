@@ -1,34 +1,31 @@
+extern crate oxide;
+
+use std::mem;
+use std::fs;
+
 pub mod win32;
 
-use std::ffi::c_void;
+pub static mut LIBRARY: Option<libloading::Library> = None;
 
-pub struct GameState {
-    green_offset: u8,
-    blue_offset: u8
-}
-
-pub struct GameMemory {
-    is_initialized: bool,
-    permanent_storage_size: u64,
-    permanent_storage: *mut c_void,
-    transient_storage_size: u64,
-    transient_storage: *mut c_void
-}
+static LIB_PATH: &str = "../oxide/target/debug/";
 
 pub fn main() {
-    let result = call_dynamic();
-    match result {
-        Ok(num) => println!("{}", num),
-        Err(error) => panic!("Error: {}", error)
-    };
-
+    load_lib();
     win32::start_program();
 }
 
-pub fn call_dynamic() -> Result<u32, Box<dyn std::error::Error>> {
+pub fn reload_lib() {
+    unsafe { drop(mem::replace(&mut LIBRARY, None)); }
+    load_lib();
+}
+
+fn load_lib() {
+    fs::copy(format!("{}/oxide.dll", LIB_PATH), format!("{}/oxide_temp.dll", LIB_PATH)).expect("Unable to copy dll to temp");
+
     unsafe {
-        let lib = libloading::Library::new("../oxide/target/debug/oxide.dll")?;
-        let func: libloading::Symbol<unsafe extern fn() -> u32> = lib.get(b"get_message")?;
-        Ok(func())
+        LIBRARY = match libloading::Library::new(format!("{}/oxide_temp.dll", LIB_PATH)) {
+            Ok(value) => Some(value),
+            Err(error) => panic!("Unable to load oxide lib: {}", error)
+        };
     }
 }

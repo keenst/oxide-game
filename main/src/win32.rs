@@ -1,6 +1,7 @@
-use crate::*;
+use crate::oxide::*;
+use crate::LIBRARY;
 use std::{
-    ffi::c_void, mem::size_of, ptr, ptr::null_mut
+    ffi::c_void, mem::size_of, ptr::null_mut
 };
 use windows::{
     core::*,
@@ -16,20 +17,7 @@ use windows::{
     }
 };
 
-struct OffscreenBuffer {
-    info: BITMAPINFO,
-    memory: *mut c_void,
-    width: i32,
-    height: i32,
-    bytes_per_pixel: i32,
-    pitch: i32
-}
-
-struct WindowDimensions {
-    width: i32,
-    height: i32
-}
-
+static mut GAME_UPDATE_AND_RENDER: Option<libloading::Symbol<unsafe extern fn(game_state: &mut GameState, buffer: &mut OffscreenBuffer) -> ()>> = None;
 static mut IS_RUNNING: bool = true;
 static mut BACK_BUFFER: OffscreenBuffer = OffscreenBuffer {
     info: BITMAPINFO {
@@ -59,8 +47,6 @@ static mut BACK_BUFFER: OffscreenBuffer = OffscreenBuffer {
     bytes_per_pixel: 0,
     pitch: 0,
 };
-static mut X_OFFSET: u8 = 0;
-static mut Y_OFFSET: u8 = 0;
 
 pub fn start_program() {
     let mut message: MSG = MSG::default();
@@ -73,15 +59,9 @@ pub fn start_program() {
 
         let device_context: HDC = GetDC(window);
 
-        let permanent_size: u64 = 64 * 1024 * 1024; // 64MB
-        let transient_size: u64 = 4 * 1024 * 1024 * 1024; // 4GB
-
-        let mut game_memory: GameMemory = GameMemory {
-            is_initialized: true,
-            permanent_storage_size: permanent_size,
-            permanent_storage: VirtualAlloc(None, permanent_size as usize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE),
-            transient_storage_size: transient_size,
-            transient_storage: VirtualAlloc(None, transient_size as usize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE)
+        let mut game_state = GameState {
+            green_offset: 0,
+            blue_offset: 0
         };
 
         while IS_RUNNING {
@@ -94,7 +74,7 @@ pub fn start_program() {
                 DispatchMessageA(&message);
             }
 
-            game_update_and_render(&mut game_memory, &mut BACK_BUFFER, X_OFFSET, Y_OFFSET);
+            game_update_and_render(&mut game_state, &mut BACK_BUFFER);
 
             let dimensions: WindowDimensions = get_window_dimensions(window);
             copy_buffer_to_window(
@@ -200,6 +180,12 @@ extern "system" fn wnd_proc(window: HWND, message: u32, w_param: WPARAM, l_param
                                 }
                             }
                             VK_SPACE => {}
+                            VK_F5 => {
+                                if is_down {
+                                    println!("reload");
+                                    crate::reload_lib();
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -261,40 +247,6 @@ unsafe fn copy_buffer_to_window(buffer: &mut OffscreenBuffer, device_context: HD
     Ok(())
 }
 
-unsafe fn game_update_and_render(memory: &mut GameMemory, buffer: &mut OffscreenBuffer, x_offset: u8, y_offset: u8) {
-    let game_state: &mut GameState = ptr::read_unaligned(memory.permanent_storage as *const &mut GameState);
-    if !memory.is_initialized {
-        game_state.green_offset = 0;
-        game_state.blue_offset = 0;
-    }
-    memory.is_initialized = true;
-    render_weird_gradient(buffer, x_offset, y_offset);
-}
-
-unsafe fn render_weird_gradient(buffer: &mut OffscreenBuffer, x_offset: u8, y_offset: u8) {
-    let mut row: *mut u8 = (*buffer).memory as *mut u8;
-
-    let mut y: i32 = 0;
-    while y < (*buffer).height {
-        y += 1;
-
-        let mut pixel: *mut u32 = row as *mut u32;
-
-        let mut x: i32 = 0;
-        while x < (*buffer).width {
-            let blue: u8 = ((x + x_offset as i32) % 255) as u8;
-            let green: u8 = ((y + y_offset as i32) % 255) as u8;
-
-            *pixel = (green as u32).wrapping_shl(8) | blue as u32;
-
-            pixel = pixel.offset(1);
-            x += 1;
-        }
-
-        row = row.offset((*buffer).pitch as isize);
-    }
-}
-
 unsafe fn get_window_dimensions(window: HWND) -> WindowDimensions {
     let mut client_rect: RECT = Default::default();
 
@@ -310,4 +262,31 @@ unsafe fn get_window_dimensions(window: HWND) -> WindowDimensions {
             WindowDimensions { width: 0, height: 0 }
         }
     }
+}
+
+unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut OffscreenBuffer) {
+    match &GAME_UPDATE_AND_RENDER {
+        Some(func) => {
+            func(game_state, buffer);
+        },
+        None => {
+            let lib = match &LIBRARY {
+                Some(value) => value,
+                None => {
+                    eprintln!("Library not initialized");
+                    return
+                }
+            };
+
+            let func: libloading::Symbol<unsafe extern fn(game_state: &mut GameState, buffer: &mut OffscreenBuffer) -> ()> =
+                match lib.get(b"game_update_and_render") {
+                    Ok(value) => value,
+                    Err(error) => panic!("Unable to get game_update_and_render from oxide: {}", error)
+                };
+
+            GAME_UPDATE_AND_RENDER = Some(func.clone());
+
+            func(game_state, buffer);
+        }
+    };
 }

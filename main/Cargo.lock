@@ -23,6 +23,14 @@ name = "main"
 version = "0.1.0"
 dependencies = [
  "libloading",
+ "oxide",
+ "windows",
+]
+
+[[package]]
+name = "oxide"
+version = "0.1.0"
+dependencies = [
  "windows",
 ]
 

@@ -3,7 +3,13 @@ name = "oxide"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-crate-type = ["cdylib"]
+# Addded lib because extern crate oxide wouldn't work without it
+# (the file it generates is never used by main)
+crate-type = ["cdylib", "lib"]
+
+[dependencies.windows]
+version = "0.51.1"
+features = [
+	"Win32_Graphics_Gdi"
+]
