@@ -1,24 +1,22 @@
 use crate::oxide::*;
 use crate::LIBRARY;
-use std::{
-    ffi::c_void, mem::size_of, ptr::null_mut
-};
-use windows::{
-    core::*,
-    Win32::{
-        Foundation::*,
-        Graphics::Gdi::*,
-        System::LibraryLoader::GetModuleHandleA,
-        System::Memory::*,
-        UI::{
-            WindowsAndMessaging::*,
-            Input::KeyboardAndMouse::*
-        }
-    }
-};
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+use std::ffi::c_void;
+use std::mem::size_of;
+use std::ptr::null_mut;
+use windows::core::*;
+use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::LibraryLoader::GetModuleHandleA;
+use windows::Win32::System::Memory::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
 static mut GAME_UPDATE_AND_RENDER: Option<libloading::Symbol<unsafe extern fn(game_state: &mut GameState, buffer: &mut OffscreenBuffer) -> ()>> = None;
 static mut IS_RUNNING: bool = true;
+// TODO: Figure out how to do this without typing everything out
+// default does not work on statics!
 static mut BACK_BUFFER: OffscreenBuffer = OffscreenBuffer {
     info: BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
@@ -54,15 +52,16 @@ pub fn start_program() {
     unsafe {
         let window: HWND = create_window().unwrap();
 
-        resize_dib_section(&mut BACK_BUFFER, 480, 270)
+        let window_size = get_window_dimensions(window);
+
+        resize_dib_section(&mut BACK_BUFFER, window_size.width, window_size.height)
             .expect("Unable to resize DIB section");
 
         let device_context: HDC = GetDC(window);
 
-        let mut game_state = GameState {
-            green_offset: 0,
-            blue_offset: 0
-        };
+        let mut game_state = GameState::default();
+
+        let mut time_last_frame: f64 = 0.0;
 
         while IS_RUNNING {
             while PeekMessageA(&mut message, None, 0, 0, PM_REMOVE).into() {
@@ -83,6 +82,11 @@ pub fn start_program() {
                 dimensions.width,
                 dimensions.height)
                 .expect("Unable to update window");
+
+            let start = SystemTime::now();
+            let current_time = start.duration_since(UNIX_EPOCH).expect("Time went backwards").as_micros() as f64 / 1000.0;
+            game_state.delta_time = (current_time - time_last_frame) as f32;
+            time_last_frame = current_time;
         }
     }
 }
@@ -150,6 +154,10 @@ extern "system" fn wnd_proc(window: HWND, message: u32, w_param: WPARAM, l_param
             }
             WM_SIZE => {
                 println!("WM_SIZE");
+
+                let dimensions = get_window_dimensions(window);
+                resize_dib_section(&mut BACK_BUFFER, dimensions.width, dimensions.height);
+
                 LRESULT(0)
             }
             WM_SYSKEYDOWN | WM_KEYDOWN | WM_SYSKEYUP | WM_KEYUP => {
