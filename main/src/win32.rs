@@ -61,6 +61,14 @@ pub fn start_program() {
 
         let mut game_state = GameState::default();
 
+        game_state.camera = Camera {
+            x: -8.5,
+            y: -4.5,
+            width: 16.0,
+            height: 9.0,
+            y_scale: 1.0
+        };
+
         let mut time_last_frame: f64 = 0.0;
 
         while IS_RUNNING {
@@ -73,9 +81,13 @@ pub fn start_program() {
                 DispatchMessageA(&message);
             }
 
+            let dimensions = get_window_dimensions(window);
+
+            game_state.camera.y_scale = dimensions.height as f32 / game_state.camera.height;
+            game_state.camera.width = dimensions.width as f32 / game_state.camera.y_scale;
+
             game_update_and_render(&mut game_state, &mut BACK_BUFFER);
 
-            let dimensions: WindowDimensions = get_window_dimensions(window);
             copy_buffer_to_window(
                 &mut BACK_BUFFER,
                 device_context,
@@ -156,7 +168,8 @@ extern "system" fn wnd_proc(window: HWND, message: u32, w_param: WPARAM, l_param
                 println!("WM_SIZE");
 
                 let dimensions = get_window_dimensions(window);
-                resize_dib_section(&mut BACK_BUFFER, dimensions.width, dimensions.height);
+                resize_dib_section(&mut BACK_BUFFER, dimensions.width, dimensions.height)
+                    .expect("Unable to resize dib section");
 
                 LRESULT(0)
             }
@@ -211,7 +224,7 @@ extern "system" fn wnd_proc(window: HWND, message: u32, w_param: WPARAM, l_param
     }
 }
 
-unsafe fn resize_dib_section(buffer: &mut OffscreenBuffer, width: i32, height: i32) -> Result<()> {
+unsafe fn resize_dib_section(buffer: &mut OffscreenBuffer, width: u32, height: u32) -> Result<()> {
     if (&buffer).memory != null_mut() {
         VirtualFree((&buffer).memory, 0, MEM_RELEASE)
             .expect("Unable to free memory");
@@ -224,13 +237,13 @@ unsafe fn resize_dib_section(buffer: &mut OffscreenBuffer, width: i32, height: i
     (*buffer).info = BITMAPINFO::default();
 
     (*buffer).info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-    (*buffer).info.bmiHeader.biWidth = (&buffer).width;
-    (*buffer).info.bmiHeader.biHeight = -(&buffer).height;
+    (*buffer).info.bmiHeader.biWidth = (&buffer).width as i32;
+    (*buffer).info.bmiHeader.biHeight = -((&buffer).height as i32);
     (*buffer).info.bmiHeader.biPlanes = 1;
     (*buffer).info.bmiHeader.biBitCount = 32;
     (*buffer).info.bmiHeader.biCompression = 0;
 
-    let bitmap_memory_size: i32 = (width * height) * (*buffer).bytes_per_pixel;
+    let bitmap_memory_size = (width * height) * (*buffer).bytes_per_pixel;
     (*buffer).memory = VirtualAlloc(
         None,
         bitmap_memory_size.try_into().unwrap(),
@@ -242,12 +255,12 @@ unsafe fn resize_dib_section(buffer: &mut OffscreenBuffer, width: i32, height: i
     Ok(())
 }
 
-unsafe fn copy_buffer_to_window(buffer: &mut OffscreenBuffer, device_context: HDC, width: i32, height: i32)
+unsafe fn copy_buffer_to_window(buffer: &mut OffscreenBuffer, device_context: HDC, width: u32, height: u32)
     -> Result<()> {
     StretchDIBits(
         device_context,
-        0, 0, width, height,
-        0, 0, (*buffer).width, (*buffer).height,
+        0, 0, width as i32, height as i32,
+        0, 0, (*buffer).width as i32, (*buffer).height as i32,
         Some((*buffer).memory as *const c_void),
         &(*buffer).info,
         DIB_RGB_COLORS, SRCCOPY);
@@ -264,7 +277,7 @@ unsafe fn get_window_dimensions(window: HWND) -> WindowDimensions {
             let width = client_rect.right - client_rect.left;
             let height = client_rect.bottom - client_rect.top;
 
-            WindowDimensions { width, height }
+            WindowDimensions { width: width as u32, height: height as u32 }
         }
         Err(_) => {
             WindowDimensions { width: 0, height: 0 }
