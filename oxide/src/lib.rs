@@ -2,6 +2,7 @@ use std::ffi::c_void;
 use std::cmp::min;
 use std::cmp::max;
 use windows::Win32::Graphics::Gdi::BITMAPINFO;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct OffscreenBuffer {
     pub info: BITMAPINFO,
@@ -20,7 +21,8 @@ pub struct WindowDimensions {
 #[derive(Default)]
 pub struct GameState {
     pub delta_time: f32,
-    pub camera: Camera
+    pub camera: Camera,
+    pub last_perf_print: u128
 }
 
 #[derive(Default, Clone, Copy)]
@@ -360,8 +362,6 @@ impl BezierCurve {
 
             t = t - gradient / hessian;
 
-            //println!("gradient: {}", gradient.abs());
-
             if gradient.abs() < 3.0 {
                 converged = true;
             }
@@ -389,6 +389,14 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut Of
     draw_circle(buffer, game_state.camera, Vector2::zero(), 0.05, 0xFFFF0000);
     draw_bounding_boxes(buffer, game_state.camera, beziers);
     draw_bezier_curve(buffer, game_state.camera, bezier.clone(), 0.02);
+
+    let start = SystemTime::now();
+    let time_now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
+    if game_state.last_perf_print == 0 || time_now.as_millis() - game_state.last_perf_print >= 1000 {
+        println!("Frame time: {}", game_state.delta_time);
+        println!("FPS: {}", 1000.0 / game_state.delta_time);
+        game_state.last_perf_print = time_now.as_millis();
+    }
 }
 
 // TODO: Make the camera centered on the screen
