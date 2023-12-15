@@ -61,7 +61,7 @@ pub fn start_program() {
 
         let mut game_state = GameState::default();
 
-        game_state.camera = Camera::new(-8.0, -4.5, 16.0, 9.0);
+        game_state.camera = Camera::new(0.0, 0.0, 16.0, 9.0);
 
         let mut time_last_frame: f64 = 0.0;
 

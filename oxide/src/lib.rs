@@ -399,17 +399,15 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut Of
     }
 }
 
-// TODO: Make the camera centered on the screen
-// Make sure to do this for both functions
 fn world_space_to_screen_space(camera: Camera, pos: Vector2) -> Vector2u32 {
-    let x = ((pos.x - camera.x) * camera.y_scale) as u32;
-    let y = ((pos.y - camera.y) * camera.y_scale) as u32;
+    let x = ((pos.x - camera.x + camera.width / 2.0) * camera.y_scale) as u32;
+    let y = ((pos.y - camera.y + camera.height / 2.0) * camera.y_scale) as u32;
     Vector2u32 { x, y }
 }
 
 fn screen_space_to_world_space(camera: Camera, pos: Vector2u32) -> Vector2 {
-    let x = pos.x as f32 / camera.y_scale + camera.x;
-    let y = pos.y as f32 / camera.y_scale + camera.y;
+    let x = pos.x as f32 / camera.y_scale + camera.x - camera.width / 2.0;
+    let y = pos.y as f32 / camera.y_scale + camera.y - camera.height / 2.0;
     Vector2 { x, y }
 }
 
@@ -442,7 +440,8 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
         let mut y: u32 = 0;
         while y <= camera.height as u32 {
             let camera_y_dec = camera.y - (camera.y as i32) as f32;
-            let camera_offset_y = (camera_y_dec + y as f32) * camera.y_scale;
+            let camera_height_dec = camera.height / 2.0 - ((camera.height / 2.0) as i32) as f32;
+            let camera_offset_y = (camera_y_dec + camera_height_dec + y as f32) * camera.y_scale;
 
             if camera_offset_y > 0.0 {
                 // Make sure it doesn't try to draw the last line one pixel off the screen
@@ -462,7 +461,8 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
         let mut x: u32 = 0;
         while x <= camera.width as u32 {
             let camera_x_dec = camera.x - (camera.x as i32) as f32;
-            let camera_offset_x = (camera_x_dec + x as f32) * camera.y_scale;
+            let camera_width_dec = camera.width / 2.0 - ((camera.width / 2.0) as i32) as f32;
+            let camera_offset_x = (camera_x_dec + camera_width_dec + x as f32) * camera.y_scale;
 
             if camera_offset_x > 0.0 {
                 // Make sure it doesn't try to draw the last line one pixel off the screen
