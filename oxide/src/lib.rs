@@ -190,6 +190,11 @@ impl std::ops::Sub<Vector2u32> for Vector2u32 {
     }
 }
 
+struct Vector2i32 {
+    x: i32,
+    y: i32
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Rectangle {
     x: f32,
@@ -468,6 +473,7 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controlle
 }
 
 fn handle_inputs(input: InputController, game_state: &mut GameState) {
+    // Keyboard camera movement
     let move_up = input.w.is_down || input.up.is_down;
     let move_down = input.s.is_down || input.down.is_down;
     let move_left = input.a.is_down || input.left.is_down;
@@ -485,16 +491,32 @@ fn handle_inputs(input: InputController, game_state: &mut GameState) {
     } else if move_down && move_right {
         (*game_state).camera.x += CAMERA_SPEED_DIAG * game_state.delta_time;
         (*game_state).camera.y += CAMERA_SPEED_DIAG * game_state.delta_time;
-    } else {
-        if move_up {
-            (*game_state).camera.y -= CAMERA_SPEED * game_state.delta_time;
-        } else if move_down {
-            (*game_state).camera.y += CAMERA_SPEED * game_state.delta_time;
-        } else if move_left {
-            (*game_state).camera.x -= CAMERA_SPEED * game_state.delta_time;
-        } else if move_right {
-            (*game_state).camera.x += CAMERA_SPEED * game_state.delta_time;
-        }
+    } else if move_up {
+        (*game_state).camera.y -= CAMERA_SPEED * game_state.delta_time;
+    } else if move_down {
+        (*game_state).camera.y += CAMERA_SPEED * game_state.delta_time;
+    } else if move_left {
+        (*game_state).camera.x -= CAMERA_SPEED * game_state.delta_time;
+    } else if move_right {
+        (*game_state).camera.x += CAMERA_SPEED * game_state.delta_time;
+    }
+
+    // Mouse camera movement
+    let left_down = input.mouse_state.left.is_down;
+    let mouse_delta = Vector2i32 {
+        x: input.mouse_state.prev_pos.x as i32 - input.mouse_state.pos.x as i32,
+        y: input.mouse_state.prev_pos.y as i32 - input.mouse_state.pos.y as i32
+    };
+    if left_down && (mouse_delta.x != 0 || mouse_delta.y != 0) {
+        (*game_state).camera.x += mouse_delta.x as f32 / game_state.camera.y_scale;
+        (*game_state).camera.y += mouse_delta.y as f32 / game_state.camera.y_scale;
+    }
+
+    // Reset camera
+    let right_clicked = input.mouse_state.right.is_down && !input.mouse_state.right.was_down;
+    if right_clicked {
+        (*game_state).camera.x = 0.0;
+        (*game_state).camera.y = 0.0;
     }
 }
 
