@@ -14,6 +14,7 @@ pub struct ButtonState {
 #[derive(Clone, Copy, Default)]
 pub struct MouseState {
     pub pos: Vector2u32,
+    pub prev_pos: Vector2u32,
     pub left: ButtonState,
     pub right: ButtonState,
     pub middle: ButtonState,
@@ -40,6 +41,7 @@ impl InputController {
         self.mouse_state.left.was_down = self.mouse_state.left.is_down;
         self.mouse_state.right.was_down = self.mouse_state.right.is_down;
         self.mouse_state.middle.was_down = self.mouse_state.middle.is_down;
+        self.mouse_state.prev_pos = self.mouse_state.pos;
         self.w.was_down = self.w.is_down;
         self.a.was_down = self.a.is_down;
         self.s.was_down = self.s.is_down;
@@ -53,6 +55,7 @@ impl InputController {
         self.mouse_state.left.is_down = new_input.mouse_state.left.is_down;
         self.mouse_state.right.is_down = new_input.mouse_state.right.is_down;
         self.mouse_state.middle.is_down = new_input.mouse_state.middle.is_down;
+        self.mouse_state.pos = new_input.mouse_state.pos;
         self.w.is_down = new_input.w.is_down;
         self.a.is_down = new_input.a.is_down;
         self.s.is_down = new_input.s.is_down;
@@ -150,7 +153,7 @@ impl std::ops::Mul<f32> for Vector2 {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub struct Vector2u32 {
     pub x: u32,
     pub y: u32
@@ -432,6 +435,9 @@ impl BezierCurve {
     }
 }
 
+static CAMERA_SPEED: f32 = 0.005;
+static CAMERA_SPEED_DIAG: f32 = 0.0035;
+
 #[no_mangle]
 pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controller: &mut InputController, buffer: &mut OffscreenBuffer) {
     handle_inputs(*input_controller, game_state);
@@ -462,20 +468,33 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controlle
 }
 
 fn handle_inputs(input: InputController, game_state: &mut GameState) {
-    if input.w.is_down || input.up.is_down {
-        (*game_state).camera.y -= 0.1 * game_state.delta_time;
-    }
+    let move_up = input.w.is_down || input.up.is_down;
+    let move_down = input.s.is_down || input.down.is_down;
+    let move_left = input.a.is_down || input.left.is_down;
+    let move_right = input.d.is_down || input.right.is_down;
 
-    if input.s.is_down || input.down.is_down {
-        (*game_state).camera.y += 0.1 * game_state.delta_time;
-    }
-
-    if input.a.is_down || input.left.is_down {
-        (*game_state).camera.x -= 0.1 * game_state.delta_time;
-    }
-
-    if input.d.is_down || input.right.is_down {
-        (*game_state).camera.x += 0.1 * game_state.delta_time;
+    if move_up && move_left {
+        (*game_state).camera.x -= CAMERA_SPEED_DIAG * game_state.delta_time;
+        (*game_state).camera.y -= CAMERA_SPEED_DIAG * game_state.delta_time;
+    } else if move_up && move_right {
+        (*game_state).camera.x += CAMERA_SPEED_DIAG * game_state.delta_time;
+        (*game_state).camera.y -= CAMERA_SPEED_DIAG * game_state.delta_time;
+    } else if move_down && move_left {
+        (*game_state).camera.x -= CAMERA_SPEED_DIAG * game_state.delta_time;
+        (*game_state).camera.y += CAMERA_SPEED_DIAG * game_state.delta_time;
+    } else if move_down && move_right {
+        (*game_state).camera.x += CAMERA_SPEED_DIAG * game_state.delta_time;
+        (*game_state).camera.y += CAMERA_SPEED_DIAG * game_state.delta_time;
+    } else {
+        if move_up {
+            (*game_state).camera.y -= CAMERA_SPEED * game_state.delta_time;
+        } else if move_down {
+            (*game_state).camera.y += CAMERA_SPEED * game_state.delta_time;
+        } else if move_left {
+            (*game_state).camera.x -= CAMERA_SPEED * game_state.delta_time;
+        } else if move_right {
+            (*game_state).camera.x += CAMERA_SPEED * game_state.delta_time;
+        }
     }
 }
 

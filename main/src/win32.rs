@@ -66,7 +66,7 @@ pub fn start_program() {
         let mut input = InputController::default();
 
         while IS_RUNNING {
-            let mut new_input = InputController::default();
+            let mut new_input = input;
             process_pending_messages(&mut new_input);
 
             input.update(new_input);
@@ -176,7 +176,7 @@ unsafe fn process_pending_messages(input: &mut InputController) {
             WM_QUIT => {
                 IS_RUNNING = false;
             },
-            WM_SYSKEYDOWN | WM_KEYDOWN => {
+            WM_SYSKEYDOWN | WM_KEYDOWN | WM_SYSKEYUP | WM_KEYUP => {
                 let vk_code = message.wParam.0 as i32;
                 let was_down: bool = (message.lParam.0 & (1 << 30)) != 0;
                 let is_down: bool = (message.lParam.0 & (1 << 31)) == 0;
