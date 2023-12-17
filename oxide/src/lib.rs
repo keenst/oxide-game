@@ -1,8 +1,69 @@
 use std::ffi::c_void;
+use std::ptr;
 use std::cmp::min;
 use std::cmp::max;
 use windows::Win32::Graphics::Gdi::BITMAPINFO;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Clone, Copy, Default)]
+pub struct ButtonState {
+    pub is_down: bool,
+    pub was_down: bool
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct MouseState {
+    pub pos: Vector2u32,
+    pub left: ButtonState,
+    pub right: ButtonState,
+    pub middle: ButtonState,
+    pub wheel_delta: i16
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct InputController {
+    pub mouse_state: MouseState,
+    pub w: ButtonState,
+    pub a: ButtonState,
+    pub s: ButtonState,
+    pub d: ButtonState,
+    pub up: ButtonState,
+    pub left: ButtonState,
+    pub down: ButtonState,
+    pub right: ButtonState,
+    pub esc: ButtonState
+}
+
+impl InputController {
+    // Makes all button states was_down and replaces is_down with new_input
+    pub fn update(&mut self, new_input: InputController) {
+        self.mouse_state.left.was_down = self.mouse_state.left.is_down;
+        self.mouse_state.right.was_down = self.mouse_state.right.is_down;
+        self.mouse_state.middle.was_down = self.mouse_state.middle.is_down;
+        self.w.was_down = self.w.is_down;
+        self.a.was_down = self.a.is_down;
+        self.s.was_down = self.s.is_down;
+        self.d.was_down = self.d.is_down;
+        self.up.was_down = self.up.is_down;
+        self.left.was_down = self.left.is_down;
+        self.down.was_down = self.down.is_down;
+        self.right.was_down = self.right.is_down;
+        self.esc.was_down = self.esc.is_down;
+
+        self.mouse_state.left.is_down = new_input.mouse_state.left.is_down;
+        self.mouse_state.right.is_down = new_input.mouse_state.right.is_down;
+        self.mouse_state.middle.is_down = new_input.mouse_state.middle.is_down;
+        self.w.is_down = new_input.w.is_down;
+        self.a.is_down = new_input.a.is_down;
+        self.s.is_down = new_input.s.is_down;
+        self.d.is_down = new_input.d.is_down;
+        self.up.is_down = new_input.up.is_down;
+        self.left.is_down = new_input.left.is_down;
+        self.down.is_down = new_input.down.is_down;
+        self.right.is_down = new_input.right.is_down;
+        self.esc.is_down = new_input.esc.is_down;
+    }
+}
 
 pub struct OffscreenBuffer {
     pub info: BITMAPINFO,
@@ -47,8 +108,8 @@ impl Camera {
 
     fn get_bounding_box(self) -> Rectangle {
         Rectangle {
-            x: self.x,
-            y: self.y,
+            x: self.x - self.width / 2.0,
+            y: self.y - self.height / 2.0,
             width: self.width,
             height: self.height
         }
@@ -89,10 +150,10 @@ impl std::ops::Mul<f32> for Vector2 {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Vector2u32 {
-    x: u32,
-    y: u32
+#[derive(Clone, Copy, Default)]
+pub struct Vector2u32 {
+    pub x: u32,
+    pub y: u32
 }
 
 impl Vector2u32 {
@@ -372,8 +433,8 @@ impl BezierCurve {
 }
 
 #[no_mangle]
-pub unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut OffscreenBuffer) {
-    clear_buffer(buffer, 0x00000000);
+pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controller: &mut InputController, buffer: &mut OffscreenBuffer) {
+    handle_inputs(*input_controller, game_state);
 
     let bezier = BezierCurve::new(
         Vector2 { x: 0.0, y: 0.5 },
@@ -385,17 +446,36 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut Of
     let mut beziers: Vec<BezierCurve> = Vec::new();
     beziers.push(bezier.clone());
 
+    clear_buffer(buffer);
     draw_unit_grid(buffer, game_state.camera);
     draw_circle(buffer, game_state.camera, Vector2::zero(), 0.05, 0xFFFF0000);
     draw_bounding_boxes(buffer, game_state.camera, beziers);
-    draw_bezier_curve(buffer, game_state.camera, bezier.clone(), 0.02);
+    //draw_bezier_curve(buffer, game_state.camera, bezier.clone(), 0.02);
 
     let start = SystemTime::now();
     let time_now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
-    if game_state.last_perf_print == 0 || time_now.as_millis() - game_state.last_perf_print >= 1000 {
+    if time_now.as_millis() - game_state.last_perf_print >= 1000 {
         println!("Frame time: {}", game_state.delta_time);
         println!("FPS: {}", 1000.0 / game_state.delta_time);
         game_state.last_perf_print = time_now.as_millis();
+    }
+}
+
+fn handle_inputs(input: InputController, game_state: &mut GameState) {
+    if input.w.is_down || input.up.is_down {
+        (*game_state).camera.y -= 0.1 * game_state.delta_time;
+    }
+
+    if input.s.is_down || input.down.is_down {
+        (*game_state).camera.y += 0.1 * game_state.delta_time;
+    }
+
+    if input.a.is_down || input.left.is_down {
+        (*game_state).camera.x -= 0.1 * game_state.delta_time;
+    }
+
+    if input.d.is_down || input.right.is_down {
+        (*game_state).camera.x += 0.1 * game_state.delta_time;
     }
 }
 
@@ -411,70 +491,59 @@ fn screen_space_to_world_space(camera: Camera, pos: Vector2u32) -> Vector2 {
     Vector2 { x, y }
 }
 
-unsafe fn clear_buffer(buffer: &mut OffscreenBuffer, color: u32) {
-    let mut row: *mut u8 = (*buffer).memory as *mut u8;
-
-    let mut y: u32 = 0;
-    while y < (*buffer).height {
-        y += 1;
-
-        let mut pixel: *mut u32 = row as *mut u32;
-
-        let mut x: u32 = 0;
-        while x < (*buffer).width {
-            *pixel = color;
-
-            pixel = pixel.offset(1);
-            x += 1;
-        }
-
-        row = row.offset((*buffer).pitch as isize);
-    }
+unsafe fn clear_buffer(buffer: &mut OffscreenBuffer) {
+    ptr::write_bytes((*buffer).memory, 0u8, (buffer.height * buffer.width * buffer.bytes_per_pixel) as usize);
 }
 
-// TODO: Check so positive decimal coordinates for the camera work properly
+// TODO: ????
 unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
     // Horizontal lines
-    let mut screen_x: u32 = 0;
-    while screen_x < buffer.width as u32 {
-        let mut y: u32 = 0;
-        while y <= camera.height as u32 {
-            let camera_y_dec = camera.y - (camera.y as i32) as f32;
-            let camera_height_dec = camera.height / 2.0 - ((camera.height / 2.0) as i32) as f32;
-            let camera_offset_y = (camera_y_dec + camera_height_dec + y as f32) * camera.y_scale;
+    let camera_height_fpart = camera.height / 2.0 - ((camera.height / 2.0) as i32) as f32;
+    let camera_y_fpart = if camera.y >= 0.0 {
+        camera.y - (camera.y as i32) as f32
+    } else {
+        1.0 + (camera.y + (camera.y.abs() as i32) as f32)
+    };
+    let y_offset = camera_height_fpart + camera_y_fpart;
 
-            if camera_offset_y > 0.0 {
-                // Make sure it doesn't try to draw the last line one pixel off the screen
-                if y == camera.height as u32 && camera_y_dec == 0.0 { break; }
+    let mut line_y: u32 = 0;
+    while line_y < camera.height as u32 {
+        let y = (((line_y as f32 - y_offset) * camera.y_scale) as i32).rem_euclid(buffer.height as i32) as u32;
 
-                draw_pixel_to_buffer(buffer, screen_x, camera_offset_y as u32, 0xFF444444);
-            }
-
-            y += 1;
+        let mut x: u32 = 0;
+        while x < buffer.width as u32 {
+            draw_pixel_to_buffer(buffer, x, y, 0xFF444444);
+            x += 1;
         }
-        screen_x += 1;
+        line_y += 1;
     }
 
     // Vertical lines
-    let mut screen_y: u32 = 0;
-    while screen_y < buffer.height as u32 {
-        let mut x: u32 = 0;
-        while x <= camera.width as u32 {
-            let camera_x_dec = camera.x - (camera.x as i32) as f32;
-            let camera_width_dec = camera.width / 2.0 - ((camera.width / 2.0) as i32) as f32;
-            let camera_offset_x = (camera_x_dec + camera_width_dec + x as f32) * camera.y_scale;
+    let camera_width_fpart = camera.width / 2.0 - ((camera.width / 2.0) as i32) as f32;
+    let camera_x_fpart = if camera.x >= 0.0 {
+        camera.x - (camera.x as i32) as f32
+    } else {
+        1.0 + (camera.x + (camera.x.abs() as i32) as f32)
+    };
+    let x_offset = camera_width_fpart + camera_x_fpart;
 
-            if camera_offset_x > 0.0 {
-                // Make sure it doesn't try to draw the last line one pixel off the screen
-                if x == camera.width as u32 && camera_x_dec == 0.0 { break; }
+    let mut line_x: u32 = 0;
+    while line_x < camera.width as u32 {
+        let x = (((line_x as f32 - x_offset) * camera.y_scale) as i32).rem_euclid(buffer.width as i32) as u32;
 
-                draw_pixel_to_buffer(buffer, camera_offset_x as u32, screen_y, 0xFF444444);
-            }
-
-            x += 1;
+        let mut y: u32 = 0;
+        while y < buffer.height as u32 {
+            draw_pixel_to_buffer(buffer, x, y, 0xFF444444);
+            y += 1;
         }
-        screen_y += 1;
+        line_x += 1;
     }
+}
+
+unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b: Vector2, color: u32) {
+}
+
+unsafe fn draw_control_points(buffer: &mut OffscreenBuffer, camera: Camera, bezier: BezierCurve) {
 }
 
 unsafe fn draw_bounding_boxes(buffer: &mut OffscreenBuffer, camera: Camera, beziers: Vec<BezierCurve>) {

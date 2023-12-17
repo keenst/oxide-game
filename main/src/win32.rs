@@ -13,7 +13,7 @@ use windows::Win32::System::Memory::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
-static mut GAME_UPDATE_AND_RENDER: Option<libloading::Symbol<unsafe extern fn(game_state: &mut GameState, buffer: &mut OffscreenBuffer) -> ()>> = None;
+static mut GAME_UPDATE_AND_RENDER: Option<libloading::Symbol<unsafe extern fn(game_state: &mut GameState, input_controller: &mut InputController, buffer: &mut OffscreenBuffer) -> ()>> = None;
 static mut IS_RUNNING: bool = true;
 // TODO: Figure out how to do this without typing everything out
 // default does not work on statics!
@@ -47,8 +47,6 @@ static mut BACK_BUFFER: OffscreenBuffer = OffscreenBuffer {
 };
 
 pub fn start_program() {
-    let mut message: MSG = MSG::default();
-
     unsafe {
         let window: HWND = create_window().unwrap();
 
@@ -65,22 +63,20 @@ pub fn start_program() {
 
         let mut time_last_frame: f64 = 0.0;
 
-        while IS_RUNNING {
-            while PeekMessageA(&mut message, None, 0, 0, PM_REMOVE).into() {
-                if message.message == WM_QUIT {
-                    IS_RUNNING = false;
-                }
+        let mut input = InputController::default();
 
-                TranslateMessage(&message);
-                DispatchMessageA(&message);
-            }
+        while IS_RUNNING {
+            let mut new_input = InputController::default();
+            process_pending_messages(&mut new_input);
+
+            input.update(new_input);
 
             let dimensions = get_window_dimensions(window);
 
             game_state.camera.y_scale = dimensions.height as f32 / game_state.camera.height;
             game_state.camera.width = dimensions.width as f32 / game_state.camera.y_scale;
 
-            game_update_and_render(&mut game_state, &mut BACK_BUFFER);
+            game_update_and_render(&mut game_state, &mut input, &mut BACK_BUFFER);
 
             copy_buffer_to_window(
                 &mut BACK_BUFFER,
@@ -167,53 +163,75 @@ extern "system" fn wnd_proc(window: HWND, message: u32, w_param: WPARAM, l_param
 
                 LRESULT(0)
             }
-            WM_SYSKEYDOWN | WM_KEYDOWN | WM_SYSKEYUP | WM_KEYUP => {
-                let vk_code: i32 = w_param.0 as i32;
-                let was_down: bool = (l_param.0 & (1 << 30)) != 0;
-                let is_down: bool = (l_param.0 & (1 << 31)) == 0;
-                if was_down != is_down {
-                    match vk_code as u8 as char {
-                        'W' => {
-                            println!("W");
-                        }
-                        'A' => {}
-                        'S' => {}
-                        'D' => {}
-                        'Q' => {}
-                        'E' => {}
-                        _ => match VIRTUAL_KEY(vk_code as u16) {
-                            VK_UP => {}
-                            VK_LEFT => {}
-                            VK_DOWN => {}
-                            VK_RIGHT => {}
-                            VK_ESCAPE => {
-                                println!("Escape: ");
-                                if is_down {
-                                    println!("Is down");
-                                } else if was_down {
-                                    println!("Was down");
-                                }
-                            }
-                            VK_SPACE => {}
-                            VK_F5 => {
-                                if is_down {
-                                    println!("reload");
-                                    crate::reload_lib();
-                                }
-                            }
-                            _ => {}
-                        }
+            _ => DefWindowProcA(window, message, w_param, l_param)
+        }
+    }
+}
+
+unsafe fn process_pending_messages(input: &mut InputController) {
+    let mut message: MSG = MSG::default();
+
+    while PeekMessageA(&mut message, None, 0, 0, PM_REMOVE).into() {
+        match message.message {
+            WM_QUIT => {
+                IS_RUNNING = false;
+            },
+            WM_SYSKEYDOWN | WM_KEYDOWN => {
+                let vk_code = message.wParam.0 as i32;
+                let was_down: bool = (message.lParam.0 & (1 << 30)) != 0;
+                let is_down: bool = (message.lParam.0 & (1 << 31)) == 0;
+
+                match vk_code as u8 as char {
+                    'W' => input.w.is_down = is_down,
+                    'A' => input.a.is_down = is_down,
+                    'S' => input.s.is_down = is_down,
+                    'D' => input.d.is_down = is_down,
+                    _ => match VIRTUAL_KEY(vk_code as u16) {
+                        VK_UP => input.up.is_down = is_down,
+                        VK_LEFT => input.left.is_down = is_down,
+                        VK_DOWN => input.down.is_down = is_down,
+                        VK_RIGHT => input.right.is_down = is_down,
+                        VK_ESCAPE => input.esc.is_down = is_down,
+                        _ => {}
                     }
                 }
 
-                // alt + F4
-                if VIRTUAL_KEY(vk_code as u16) == VK_F4 && l_param.0 & (1 << 29) != 0 {
-                    IS_RUNNING = false;
-                }
+                if !was_down && is_down {
+                    // F5
+                    if VIRTUAL_KEY(vk_code as u16) == VK_F5 {
+                        println!("reload");
+                        crate::reload_lib();
+                    }
 
-                LRESULT(0)
+                    // alt + F4
+                    if VIRTUAL_KEY(vk_code as u16) == VK_F4 && message.lParam.0 & (1 << 29) != 0 {
+                        IS_RUNNING = false;
+                    }
+                }
             }
-            _ => DefWindowProcA(window, message, w_param, l_param)
+            WM_MOUSEMOVE => {
+                let mut mouse_point = POINT::default();
+                GetCursorPos(&mut mouse_point).expect("Unable to get cursor position");
+                ScreenToClient(message.hwnd, &mut mouse_point);
+                input.mouse_state.pos = Vector2u32 {
+                    x: mouse_point.x as u32,
+                    y: mouse_point.y as u32
+                };
+            }
+            WM_LBUTTONDOWN => input.mouse_state.left.is_down = true,
+            WM_LBUTTONUP => input.mouse_state.left.is_down = false,
+            WM_RBUTTONDOWN => input.mouse_state.right.is_down = true,
+            WM_RBUTTONUP => input.mouse_state.right.is_down = false,
+            WM_MBUTTONDOWN => input.mouse_state.middle.is_down = true,
+            WM_MBUTTONUP => input.mouse_state.middle.is_down = false,
+            WM_MOUSEWHEEL => {
+                let wheel_delta = (message.wParam.0 >> 16) as i16;
+                input.mouse_state.wheel_delta = wheel_delta;
+            }
+            _ => {
+                TranslateMessage(&message);
+                DispatchMessageA(&message);
+            }
         }
     }
 }
@@ -279,10 +297,10 @@ unsafe fn get_window_dimensions(window: HWND) -> WindowDimensions {
     }
 }
 
-unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut OffscreenBuffer) {
+unsafe fn game_update_and_render(game_state: &mut GameState, input_controller: &mut InputController, buffer: &mut OffscreenBuffer) {
     match &GAME_UPDATE_AND_RENDER {
         Some(func) => {
-            func(game_state, buffer);
+            func(game_state, input_controller, buffer);
         },
         None => {
             let lib = match &LIBRARY {
@@ -293,7 +311,7 @@ unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut Offscr
                 }
             };
 
-            let func: libloading::Symbol<unsafe extern fn(game_state: &mut GameState, buffer: &mut OffscreenBuffer) -> ()> =
+            let func: libloading::Symbol<unsafe extern fn(game_state: &mut GameState, input_controller: &mut InputController, buffer: &mut OffscreenBuffer) -> ()> =
                 match lib.get(b"game_update_and_render") {
                     Ok(value) => value,
                     Err(error) => panic!("Unable to get game_update_and_render from oxide: {}", error)
@@ -301,7 +319,7 @@ unsafe fn game_update_and_render(game_state: &mut GameState, buffer: &mut Offscr
 
             GAME_UPDATE_AND_RENDER = Some(func.clone());
 
-            func(game_state, buffer);
+            func(game_state, input_controller, buffer);
         }
     };
 }
