@@ -190,6 +190,7 @@ impl std::ops::Sub<Vector2u32> for Vector2u32 {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Vector2i32 {
     x: i32,
     y: i32
@@ -526,6 +527,12 @@ fn world_space_to_screen_space(camera: Camera, pos: Vector2) -> Vector2u32 {
     Vector2u32 { x, y }
 }
 
+fn world_space_to_screen_space_i32(camera: Camera, pos: Vector2) -> Vector2i32 {
+    let x = ((pos.x - camera.x + camera.width / 2.0) * camera.y_scale) as i32;
+    let y = ((pos.y - camera.y + camera.height / 2.0) * camera.y_scale) as i32;
+    Vector2i32 { x, y }
+}
+
 fn screen_space_to_world_space(camera: Camera, pos: Vector2u32) -> Vector2 {
     let x = pos.x as f32 / camera.y_scale + camera.x - camera.width / 2.0;
     let y = pos.y as f32 / camera.y_scale + camera.y - camera.height / 2.0;
@@ -632,23 +639,21 @@ unsafe fn draw_rectangle(buffer: &mut OffscreenBuffer, camera: Camera, rectangle
     }
 }
 
-// TODO: Make it so circles can be drawn partially off-screen
+// TODO: Fix circle staying still when moving between y=0 and y=1 (same for x)
 unsafe fn draw_circle(buffer: &mut OffscreenBuffer, camera: Camera, position: Vector2, radius: f32, color: u32) {
-    let screen_pos = world_space_to_screen_space(camera, position);
-    let screen_radius = (radius * camera.y_scale) as u32;
+    let screen_pos = world_space_to_screen_space_i32(camera, position);
+    let screen_radius = (radius * camera.y_scale) as i32;
 
-    if screen_pos.x as i32 - (screen_radius as i32) < 0 ||
-       screen_pos.x + screen_radius > buffer.width ||
-       screen_pos.y as i32 - (screen_radius as i32) < 0 ||
-       screen_pos.y + screen_radius > buffer.height {
-        return;
-    }
+    let start_x = max(screen_pos.x as i32 - screen_radius, 0) as u32;
+    let start_y = max(screen_pos.y as i32 - screen_radius, 0) as u32;
+    let end_x = min(max(screen_pos.x + screen_radius, 0), buffer.width as i32 - 1) as u32;
+    let end_y = min(max(screen_pos.y + screen_radius, 0), buffer.height as i32 - 1) as u32;
 
-    let mut x = screen_pos.x - screen_radius;
-    while x <= screen_pos.x + screen_radius {
-        let mut y = screen_pos.y - screen_radius;
-        while y <= screen_pos.y + screen_radius {
-            let dist = distance(screen_pos, Vector2u32 { x, y });
+    let mut x = start_x;
+    while x <= end_x {
+        let mut y = start_y;
+        while y <= end_y {
+            let dist = distance_i32(screen_pos, Vector2i32 { x: x as i32, y: y as i32 });
             if dist <= screen_radius as f32 {
                 draw_pixel_to_buffer(buffer, x, y, color);
             } else if dist <= screen_radius as f32 + 1.0 {
@@ -664,7 +669,13 @@ unsafe fn draw_circle(buffer: &mut OffscreenBuffer, camera: Camera, position: Ve
     }
 }
 
-fn distance(a: Vector2u32, b: Vector2u32) -> f32 {
+fn distance_u32(a: Vector2u32, b: Vector2u32) -> f32 {
+    let dx = (a.x as f32 - b.x as f32).abs();
+    let dy = (a.y as f32 - b.y as f32).abs();
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn distance_i32(a: Vector2i32, b: Vector2i32) -> f32 {
     let dx = (a.x as f32 - b.x as f32).abs();
     let dy = (a.y as f32 - b.y as f32).abs();
     (dx * dx + dy * dy).sqrt()
