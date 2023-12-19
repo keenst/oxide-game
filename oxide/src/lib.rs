@@ -462,6 +462,7 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controlle
     draw_unit_grid(buffer, game_state.camera);
     draw_circle(buffer, game_state.camera, Vector2::zero(), 0.05, 0xFFFF0000);
     draw_bounding_boxes(buffer, game_state.camera, beziers);
+    draw_line(buffer, game_state.camera, Vector2 { x: 0.0, y: 0.0 }, Vector2 { x: 1.0, y: 1.0 }, 0xFFFFFFFF);
     //draw_bezier_curve(buffer, game_state.camera, bezier.clone(), 0.02);
 
     let start = SystemTime::now();
@@ -588,7 +589,73 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
     }
 }
 
+// Xiaolin Wu's line algorithm
 unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b: Vector2, color: u32) {
+    let a_screen = world_space_to_screen_space(camera, a);
+    let b_screen = world_space_to_screen_space(camera, b);
+
+    let mut x0 = a_screen.x;
+    let mut y0 = a_screen.y;
+    let mut x1 = b_screen.x;
+    let mut y1 = b_screen.y;
+
+    let steep = y1 - y0 > x1 - x0;
+
+    if steep {
+        let old_x0 = x0;
+        x0 = y0;
+        y0 = old_x0;
+
+        let old_x1 = x1;
+        x1 = y1;
+        y1 = old_x1;
+    }
+
+    if x0 > x1 {
+        let old_x0 = x0;
+        x0 = x1;
+        x1 = old_x0;
+
+        let old_y0 = y0;
+        y0 = y1;
+        y1 = old_y0;
+    }
+
+    let gradient = if x1 - x0 == 0 {
+        1.0
+    } else {
+        (y1 - y0) as f32 / (x1 - x0) as f32
+    };
+
+    let mut y_intersect = y0 as f32;
+
+    if steep {
+        let mut x = x0;
+        while x <= x1 {
+            let y_intersect_fpart = y_intersect as f32 - (y_intersect as u32) as f32;
+            let alpha = ((1.0 - y_intersect_fpart) * 255.0) as u32;
+            let color_with_alpha = (color & 0x00FFFFFF) | (alpha << 24);
+
+            draw_pixel_to_buffer(buffer, y_intersect as u32, x, color);
+            draw_pixel_to_buffer(buffer, max(y_intersect as i32 - 1, 0) as u32, x, color_with_alpha);
+
+            y_intersect += gradient;
+            x += 1;
+        }
+    } else {
+        let mut x = x0;
+        while x <= x1 {
+            let y_intersect_fpart = y_intersect as f32 - (y_intersect as u32) as f32;
+            let alpha = ((1.0 - y_intersect_fpart) * 255.0) as u32;
+            let color_with_alpha = (color & 0x00FFFFFF) | (alpha << 24);
+
+            draw_pixel_to_buffer(buffer, x, y_intersect as u32, color);
+            draw_pixel_to_buffer(buffer, x, max(y_intersect as i32 - 1, 0) as u32, color_with_alpha);
+
+            y_intersect += gradient;
+            x += 1;
+        }
+    }
 }
 
 unsafe fn draw_control_points(buffer: &mut OffscreenBuffer, camera: Camera, bezier: BezierCurve) {
