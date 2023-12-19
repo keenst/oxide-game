@@ -462,8 +462,7 @@ pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controlle
     draw_unit_grid(buffer, game_state.camera);
     draw_circle(buffer, game_state.camera, Vector2::zero(), 0.05, 0xFFFF0000);
     draw_bounding_boxes(buffer, game_state.camera, beziers);
-    draw_line(buffer, game_state.camera, Vector2 { x: 0.0, y: 0.0 }, Vector2 { x: 1.0, y: 1.0 }, 0xFFFFFFFF);
-    //draw_bezier_curve(buffer, game_state.camera, bezier.clone(), 0.02);
+    draw_bezier_curve(buffer, game_state.camera, bezier.clone());
 
     let start = SystemTime::now();
     let time_now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -589,10 +588,11 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
     }
 }
 
+// TODO: Fix drawing out of bounds
 // Xiaolin Wu's line algorithm
 unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b: Vector2, color: u32) {
-    let a_screen = world_space_to_screen_space(camera, a);
-    let b_screen = world_space_to_screen_space(camera, b);
+    let a_screen = world_space_to_screen_space_i32(camera, a);
+    let b_screen = world_space_to_screen_space_i32(camera, b);
 
     let mut x0 = a_screen.x;
     let mut y0 = a_screen.y;
@@ -636,8 +636,8 @@ unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b:
             let alpha = ((1.0 - y_intersect_fpart) * 255.0) as u32;
             let color_with_alpha = (color & 0x00FFFFFF) | (alpha << 24);
 
-            draw_pixel_to_buffer(buffer, y_intersect as u32, x, color);
-            draw_pixel_to_buffer(buffer, max(y_intersect as i32 - 1, 0) as u32, x, color_with_alpha);
+            draw_pixel_to_buffer(buffer, y_intersect as u32, max(x, 0) as u32, color);
+            draw_pixel_to_buffer(buffer, max(y_intersect as i32 - 1, 0) as u32, max(x, 0) as u32, color_with_alpha);
 
             y_intersect += gradient;
             x += 1;
@@ -649,8 +649,8 @@ unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b:
             let alpha = ((1.0 - y_intersect_fpart) * 255.0) as u32;
             let color_with_alpha = (color & 0x00FFFFFF) | (alpha << 24);
 
-            draw_pixel_to_buffer(buffer, x, y_intersect as u32, color);
-            draw_pixel_to_buffer(buffer, x, max(y_intersect as i32 - 1, 0) as u32, color_with_alpha);
+            draw_pixel_to_buffer(buffer, max(x, 0) as u32, y_intersect as u32, color);
+            draw_pixel_to_buffer(buffer, max(x, 0) as u32, max(y_intersect as i32 - 1, 0) as u32, color_with_alpha);
 
             y_intersect += gradient;
             x += 1;
@@ -748,32 +748,19 @@ fn distance_i32(a: Vector2i32, b: Vector2i32) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
-unsafe fn draw_bezier_curve(buffer: &mut OffscreenBuffer, camera: Camera, bezier: BezierCurve, radius: f32) {
-    let bounding_box = bezier.bounding_box;
+unsafe fn draw_bezier_curve(buffer: &mut OffscreenBuffer, camera: Camera, bezier: BezierCurve) {
+    let mut start = bezier.p0;
+    let mut i = 0.1;
+    while i <= 1.0 {
+        let end = bezier.evaluate(i);
 
-    let top_left = Vector2 { x: bounding_box.x, y: bounding_box.y };
-    let bottom_right = Vector2 { x: bounding_box.x + bounding_box.width, y: bounding_box.y + bounding_box.height };
+        draw_line(buffer, camera, start, end, 0xFFFFFFFF);
+        start = end;
 
-    let top_left_screen_space = world_space_to_screen_space(camera, top_left) - Vector2u32::new(radius as u32 + 2);
-    let bottom_right_screen_space = world_space_to_screen_space(camera, bottom_right) + Vector2u32::new(radius as u32 + 2);
-
-    let mut x = top_left_screen_space.x;
-    while x <= bottom_right_screen_space.x {
-        let mut y = top_left_screen_space.y;
-        while y <= bottom_right_screen_space.y {
-            let world_pos = screen_space_to_world_space(camera, Vector2u32 { x, y });
-            let world_distance = bezier.min_distance(world_pos);
-            let screen_distance = world_distance * camera.y_scale;
-            let screen_radius = radius * camera.y_scale;
-
-            if screen_distance <= screen_radius {
-                draw_pixel_to_buffer(buffer, x, y, 0xFFFFFFFF);
-            }
-
-            y += 1;
-        }
-        x += 1;
+        i += 0.1;
     }
+
+    draw_line(buffer, camera, start, bezier.p3, 0xFFFFFFFF);
 }
 
 unsafe fn draw_pixel_to_buffer(buffer: &mut OffscreenBuffer, x: u32, y: u32, color: u32) {
