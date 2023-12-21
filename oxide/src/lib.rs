@@ -86,7 +86,10 @@ pub struct WindowDimensions {
 pub struct GameState {
     pub delta_time: f32,
     pub camera: Camera,
-    pub last_perf_print: u128
+    pub last_perf_print: u128,
+    pub curves: [Option<BezierCurve>; 10],
+    pub selected_curve_index: Option<u32>,
+    pub selected_control_point: u32
 }
 
 #[derive(Default, Clone, Copy)]
@@ -119,10 +122,10 @@ impl Camera {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Vector2 {
-    x: f32,
-    y: f32
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Vector2 {
+    pub x: f32,
+    pub y: f32
 }
 
 impl Vector2 {
@@ -138,6 +141,26 @@ impl std::ops::Add for Vector2 {
         Vector2 {
             x: self.x + other.x,
             y: self.y + other.y
+        }
+    }
+}
+
+impl std::ops::AddAssign for Vector2 {
+    fn add_assign(&mut self, other: Vector2) {
+        *self = Vector2 {
+            x: self.x + other.x,
+            y: self.y + other.y
+        }
+    }
+}
+
+impl std::ops::Sub for Vector2 {
+    type Output = Vector2;
+
+    fn sub(self, other: Vector2) -> Self {
+        Vector2 {
+            x: self.y - other.x,
+            y: self.y - other.y
         }
     }
 }
@@ -196,12 +219,12 @@ struct Vector2i32 {
     y: i32
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Rectangle {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Rectangle {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32
 }
 
 impl Rectangle {
@@ -211,49 +234,22 @@ impl Rectangle {
     }
 }
 
-#[derive(Clone)]
-struct BezierCurve {
-    p0: Vector2,
-    p1: Vector2,
-    p2: Vector2,
-    p3: Vector2,
-    bounding_box: Rectangle
+#[derive(Default, Clone, Copy)]
+pub struct BezierCurve {
+    pub p0: Vector2,
+    pub p1: Vector2,
+    pub p2: Vector2,
+    pub p3: Vector2,
 }
 
 impl BezierCurve {
-    fn new(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> Self {
-        let mut curve = BezierCurve {
+    pub fn new(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2) -> Self {
+        BezierCurve {
             p0,
             p1,
             p2,
             p3,
-            bounding_box: Rectangle {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 0.0
-            }
-        };
-
-        curve.bounding_box = curve.get_bounding_box();
-
-        curve
-    }
-
-    fn modify(mut self, point: u8, new_position: Vector2) {
-        if point == 0 {
-            self.p0 = new_position;
-        } else if point == 1 {
-            self.p1 = new_position;
-        } else if point == 2 {
-            self.p2 = new_position;
-        } else if point == 3 {
-            self.p3 = new_position;
-        } else {
-            eprintln!("{} is not a valid point", point);
         }
-
-        self.bounding_box = self.get_bounding_box();
     }
 
     // This function was stolen from here:
@@ -357,88 +353,6 @@ impl BezierCurve {
         self.p2 * (-3.0 * t * t * t + 3.0 * t * t) +
         self.p3 * (t * t * t)
     }
-
-    fn derivative(&self, t: f32) -> Vector2 {
-        self.p0 * (-3.0 * t * t + 6.0 * t - 3.0) +
-        self.p1 * (9.0 * t * t - 12.0 * t + 3.0) +
-        self.p2 * (-9.0 * t * t + 6.0 * t) +
-        self.p3 * (3.0 * t * t)
-    }
-
-    fn second_derivative(&self, t: f32) -> Vector2 {
-        self.p0 * (-6.0 * t + 6.0) +
-        self.p1 * (18.0 * t - 12.0) +
-        self.p2 * (-18.0 * t + 6.0) +
-        self.p3 * (6.0 * t)
-    }
-
-    // Returns the distance between a point in world space and a specified point on the bezier curve
-    fn distance(&self, t: f32, point: Vector2) -> f32 {
-        let bezier_point = self.evaluate(t);
-        let dx = (bezier_point.x - point.x).abs();
-        let dy = (bezier_point.y - point.y).abs();
-
-        (dx * dx + dy * dy).sqrt()
-    }
-
-    fn distance_derivative(&self, t: f32, point: Vector2) -> f32 {
-        let bezier_point = self.evaluate(t);
-        let dx = (bezier_point.x - point.x).abs();
-        let dy = (bezier_point.y - point.y).abs();
-
-        let derivative = self.derivative(t);
-
-        (dx * derivative.x + dy * derivative.y) / self.distance(t, point)
-    }
-
-    fn distance_second_derivative(&self, t: f32, point: Vector2) -> f32 {
-        let dist = self.distance(t, point);
-        let dist_deriv = self.distance_derivative(t, point);
-
-        let deriv = self.derivative(t);
-        let second_deriv = self.second_derivative(t);
-
-        (dist * second_deriv.x - dist_deriv * dist_deriv * deriv.x) / (dist * dist * dist)
-    }
-
-    // Returns the minimum distance between a point and the bezier curve in world space
-    fn min_distance(&self, point: Vector2) -> f32 {
-        let mut min_dist = f32::MAX;
-
-        let mut t = 0.0;
-        while t <= 1.0 {
-            let dist = self.distance(t, point);
-
-            if dist < min_dist {
-                min_dist = dist;
-            }
-
-            t += 0.01;
-        }
-
-        min_dist
-    }
-
-    fn _min_distance(&self, point: Vector2) -> f32 {
-        let mut t = 0.5;
-
-        let mut converged = false;
-        while !converged {
-            let gradient = self.distance_derivative(t, point);
-            if gradient.is_nan() { continue; }
-            if gradient.abs() > 1e3 { break; }
-
-            let hessian = self.distance_second_derivative(t, point);
-
-            t = t - gradient / hessian;
-
-            if gradient.abs() < 3.0 {
-                converged = true;
-            }
-        }
-
-        self.distance(t, point)
-    }
 }
 
 static CAMERA_SPEED: f32 = 0.005;
@@ -448,21 +362,12 @@ static CAMERA_SPEED_DIAG: f32 = 0.0035;
 pub unsafe fn game_update_and_render(game_state: &mut GameState, input_controller: &mut InputController, buffer: &mut OffscreenBuffer) {
     handle_inputs(*input_controller, game_state);
 
-    let bezier = BezierCurve::new(
-        Vector2 { x: 0.0, y: 0.5 },
-        Vector2 { x: 1.0, y: 0.0 },
-        Vector2 { x: 1.0, y: 1.6 },
-        Vector2 { x: 0.0, y: 2.0 }
-    );
-
-    let mut beziers: Vec<BezierCurve> = Vec::new();
-    beziers.push(bezier.clone());
-
     clear_buffer(buffer);
     draw_unit_grid(buffer, game_state.camera);
     draw_circle(buffer, game_state.camera, Vector2::zero(), 0.05, 0xFFFF0000);
-    draw_bounding_boxes(buffer, game_state.camera, beziers);
-    draw_bezier_curve(buffer, game_state.camera, bezier.clone());
+    draw_bounding_boxes(buffer, game_state);
+    draw_bezier_curves(buffer, game_state);
+    draw_control_points(buffer, game_state.camera, game_state);
 
     let start = SystemTime::now();
     let time_now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -502,15 +407,68 @@ fn handle_inputs(input: InputController, game_state: &mut GameState) {
         (*game_state).camera.x += CAMERA_SPEED * game_state.delta_time;
     }
 
-    // Mouse camera movement
+    // Mouse left click actions
     let left_down = input.mouse_state.left.is_down;
-    let mouse_delta = Vector2i32 {
-        x: input.mouse_state.prev_pos.x as i32 - input.mouse_state.pos.x as i32,
-        y: input.mouse_state.prev_pos.y as i32 - input.mouse_state.pos.y as i32
-    };
-    if left_down && (mouse_delta.x != 0 || mouse_delta.y != 0) {
-        (*game_state).camera.x += mouse_delta.x as f32 / game_state.camera.y_scale;
-        (*game_state).camera.y += mouse_delta.y as f32 / game_state.camera.y_scale;
+    let left_released = !left_down && input.mouse_state.left.was_down;
+    let left_pressed = left_down && !input.mouse_state.left.was_down;
+
+    if left_released {
+        game_state.selected_curve_index = None;
+    }
+
+    let cursor_pos_world = screen_space_to_world_space(game_state.camera, input.mouse_state.pos);
+    if left_pressed {
+        let mut i = 0;
+        while i < game_state.curves.len() as u32 {
+            match game_state.curves[i as usize] {
+                Some(curve) => {
+                    if distance_f32(cursor_pos_world, curve.p1) < 0.02 {
+                        game_state.selected_curve_index = Some(i);
+                        game_state.selected_control_point = 0;
+                        break;
+                    } else if distance_f32(cursor_pos_world, curve.p2) < 0.02 {
+                        game_state.selected_curve_index = Some(i);
+                        game_state.selected_control_point = 1;
+                        break;
+                    }
+                },
+                None => {}
+            }
+
+            i += 1;
+        }
+    }
+
+    if left_down {
+        match game_state.selected_curve_index {
+            Some(index) => {
+                // Moving control point with mouse
+                match &mut game_state.curves[index as usize] {
+                    Some(ref mut value) => {
+                        if game_state.selected_control_point == 0 {
+                            (*value).p1 = cursor_pos_world;
+                        } else if game_state.selected_control_point == 1 {
+                            (*value).p2 = cursor_pos_world;
+                        } else {
+                            panic!("Curve can't have {} control points", index + 1);
+                        }
+                    },
+                    None => {
+                        panic!("Curve with index {} is None", index);
+                    }
+                }
+            },
+            None => {
+                // Moving camera with mouse
+                let mouse_delta = Vector2i32 {
+                    x: input.mouse_state.prev_pos.x as i32 - input.mouse_state.pos.x as i32,
+                    y: input.mouse_state.prev_pos.y as i32 - input.mouse_state.pos.y as i32
+                };
+
+                (*game_state).camera.x += mouse_delta.x as f32 / game_state.camera.y_scale;
+                (*game_state).camera.y += mouse_delta.y as f32 / game_state.camera.y_scale;
+            }
+        }
     }
 
     // Reset camera
@@ -588,6 +546,7 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
     }
 }
 
+// TODO: Make sure transparent lines work properly
 // TODO: Fix drawing out of bounds
 // Xiaolin Wu's line algorithm
 unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b: Vector2, color: u32) {
@@ -658,20 +617,41 @@ unsafe fn draw_line(buffer: &mut OffscreenBuffer, camera: Camera, a: Vector2, b:
     }
 }
 
-unsafe fn draw_control_points(buffer: &mut OffscreenBuffer, camera: Camera, bezier: BezierCurve) {
+unsafe fn draw_control_points(buffer: &mut OffscreenBuffer, camera: Camera, game_state: &GameState) {
+    for curve in game_state.curves {
+        match curve {
+            Some(value) => {
+                draw_line(buffer, camera, value.p0, value.p1, 0xFF888888);
+                draw_line(buffer, camera, value.p2, value.p3, 0xFF888888);
+
+                draw_circle(buffer, camera, value.p1, 0.02, 0xFF00FF00);
+                draw_circle(buffer, camera, value.p2, 0.02, 0xFF00FF00);
+            },
+            None => {
+                continue;
+            }
+        }
+    }
 }
 
-unsafe fn draw_bounding_boxes(buffer: &mut OffscreenBuffer, camera: Camera, beziers: Vec<BezierCurve>) {
-    let camera_bounding_box = camera.get_bounding_box();
+unsafe fn draw_bounding_boxes(buffer: &mut OffscreenBuffer, game_state: &GameState) {
+    let camera_bounding_box = game_state.camera.get_bounding_box();
 
-    for bezier in beziers {
-        let bounding_box = bezier.bounding_box;
+    for curve in game_state.curves {
+        match curve {
+            Some(value) => {
+                let bounding_box = value.get_bounding_box();
 
-        if !bounding_box.intersects(camera_bounding_box) {
-            continue;
+                if !bounding_box.intersects(camera_bounding_box) {
+                    continue;
+                }
+
+                draw_rectangle(buffer, game_state.camera, bounding_box, 0x3300DDAA);
+            }
+            None => {
+                continue;
+            }
         }
-
-        draw_rectangle(buffer, camera, bounding_box, 0x3300DDAA);
     }
 }
 
@@ -736,9 +716,9 @@ unsafe fn draw_circle(buffer: &mut OffscreenBuffer, camera: Camera, position: Ve
     }
 }
 
-fn distance_u32(a: Vector2u32, b: Vector2u32) -> f32 {
-    let dx = (a.x as f32 - b.x as f32).abs();
-    let dy = (a.y as f32 - b.y as f32).abs();
+fn distance_f32(a: Vector2, b: Vector2) -> f32 {
+    let dx = (a.x - b.x).abs();
+    let dy = (a.y - b.y).abs();
     (dx * dx + dy * dy).sqrt()
 }
 
@@ -746,6 +726,19 @@ fn distance_i32(a: Vector2i32, b: Vector2i32) -> f32 {
     let dx = (a.x as f32 - b.x as f32).abs();
     let dy = (a.y as f32 - b.y as f32).abs();
     (dx * dx + dy * dy).sqrt()
+}
+
+unsafe fn draw_bezier_curves(buffer: &mut OffscreenBuffer, game_state: &GameState) {
+    for curve in game_state.curves {
+        match curve {
+            Some(value) => {
+                draw_bezier_curve(buffer, game_state.camera, value);
+            },
+            None => {
+                continue;
+            }
+        }
+    }
 }
 
 unsafe fn draw_bezier_curve(buffer: &mut OffscreenBuffer, camera: Camera, bezier: BezierCurve) {

@@ -60,6 +60,12 @@ pub fn start_program() {
         let mut game_state = GameState::default();
 
         game_state.camera = Camera::new(0.0, 0.0, 16.0, 9.0);
+        game_state.curves[0] = Some(BezierCurve::new(
+            Vector2 { x: 0.0, y: 0.5 },
+            Vector2 { x: 1.0, y: 0.0 },
+            Vector2 { x: 1.0, y: 1.6 },
+            Vector2 { x: 0.0, y: 2.0 }
+        ));
 
         let mut time_last_frame: f64 = 0.0;
 
