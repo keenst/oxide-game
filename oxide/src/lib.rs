@@ -145,15 +145,6 @@ impl std::ops::Add for Vector2 {
     }
 }
 
-impl std::ops::AddAssign for Vector2 {
-    fn add_assign(&mut self, other: Vector2) {
-        *self = Vector2 {
-            x: self.x + other.x,
-            y: self.y + other.y
-        }
-    }
-}
-
 impl std::ops::Sub for Vector2 {
     type Output = Vector2;
 
@@ -510,7 +501,7 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
     } else {
         1.0 + (camera.y + (camera.y.abs() as i32) as f32)
     };
-    let y_offset = camera_height_fpart + camera_y_fpart;
+    let y_offset = camera_y_fpart - camera_height_fpart;
 
     let mut line_y: u32 = 0;
     while line_y < camera.height as u32 {
@@ -531,7 +522,8 @@ unsafe fn draw_unit_grid(buffer: &mut OffscreenBuffer, camera: Camera) {
     } else {
         1.0 + (camera.x + (camera.x.abs() as i32) as f32)
     };
-    let x_offset = camera_width_fpart + camera_x_fpart;
+    let x_offset = camera_x_fpart - camera_width_fpart;
+    println!("offset: {}", x_offset);
 
     let mut line_x: u32 = 0;
     while line_x < camera.width as u32 {
